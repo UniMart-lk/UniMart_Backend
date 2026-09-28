@@ -1,5 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
-const bcrypt = require('bcryptjs');
+import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
@@ -8,8 +8,7 @@ async function main() {
 
   const defaultPassword = await bcrypt.hash('Password123!', 10);
 
-  // 1. Seed Categories (Marketplace & Rental)
-  console.log('📦 Seeding Categories...');
+  // 1. Seed Categories
   const categories = [
     { name: 'Vehicles', slug: 'vehicles', type: 'RENTAL', description: 'Motorcycles, Bicycles, Cars' },
     { name: 'Event & Camping Equipment', slug: 'equipment', type: 'RENTAL', description: 'Tents, Projectors, Speakers' },
@@ -27,7 +26,6 @@ async function main() {
   }
 
   // 2. Seed Admin User
-  console.log('👤 Seeding Admin...');
   await prisma.user.upsert({
     where: { email: 'admin@unimart.com' },
     update: {},
@@ -47,8 +45,7 @@ async function main() {
     },
   });
 
-  // 3. Seed Verified Student Provider (Member 2 and Member 3 need this!)
-  console.log('👤 Seeding Verified Student Provider...');
+  // 3. Seed Verified Student Provider
   await prisma.user.upsert({
     where: { email: 'provider@campus.ac.lk' },
     update: {},
@@ -84,8 +81,7 @@ async function main() {
     },
   });
 
-  // 4. Seed Regular User (Renter / Buyer)
-  console.log('👤 Seeding Regular Renter/Buyer...');
+  // 4. Seed Regular User
   await prisma.user.upsert({
     where: { email: 'renter@campus.ac.lk' },
     update: {},
@@ -110,13 +106,7 @@ async function main() {
     },
   });
 
-  console.log('\n🎉 Seeding finished successfully!');
-  console.log('----------------------------------------------------');
-  console.log('Default password for all accounts: Password123!');
-  console.log('Admin account:    admin@unimart.com');
-  console.log('Provider account: provider@campus.ac.lk (Provider ID: 1)');
-  console.log('Renter account:   renter@campus.ac.lk');
-  console.log('----------------------------------------------------');
+  console.log('🎉 Seeding finished successfully!');
 }
 
 main()
