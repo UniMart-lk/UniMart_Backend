@@ -33,6 +33,44 @@ class AuthController {
   }
 
   /**
+   * Handle user registration request
+   * POST /api/auth/register
+   */
+  async register(req, res) {
+    try {
+      const { email, password, contactNumber, role, providerType, verificationData } = req.body || {};
+
+      if (!email || !password) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Please provide both email and password.',
+        });
+      }
+
+      const result = await authService.register({
+        email,
+        password,
+        contactNumber,
+        role,
+        providerType,
+        verificationData,
+      });
+
+      return res.status(201).json({
+        status: 'success',
+        message: 'Account registered successfully',
+        data: result,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({
+        status: 'error',
+        message: error.message || 'Internal server error during registration',
+      });
+    }
+  }
+
+  /**
    * Handle get current authenticated user profile
    * GET /api/auth/me
    */
