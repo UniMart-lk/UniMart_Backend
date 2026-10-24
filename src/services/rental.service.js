@@ -34,13 +34,15 @@ class RentalService {
    * @returns {Object} { rentals, nextCursor }
    */
   async getRentalFeed({ limit, cursor }) {
-    // Fetch one extra row to know whether another page exists
+    // Fetch one extra row to know whether another page exists.
+    // The cursor is the last id the app received; the next page is every older id. A plain id < cursor
+    // filter (instead of Prisma's cursor + skip: 1) keeps working when that rental was deleted or is no
+    // longer ACTIVE: Prisma returns nothing for a missing cursor row, and skip: 1 would then drop a real rental.
     const listings = await prisma.rentalListing.findMany({
-      where: { status: 'ACTIVE' },
+      where: { status: 'ACTIVE', ...(cursor && { id: { lt: cursor } }) },
       select: rentalFeedSelect,
       orderBy: { id: 'desc' },
       take: limit + 1,
-      ...(cursor && { cursor: { id: cursor }, skip: 1 }),
     });
 
     const hasMore = listings.length > limit;
