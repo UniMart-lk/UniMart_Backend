@@ -14,7 +14,7 @@ const ALLOWED_SORT_OPTIONS = [
 class MarketplaceController {
   /**
    * Handle marketplace feed request
-   * GET /api/marketplace?limit=20&cursor=123&category=Books&search=calculus&sort=Newest
+   * GET /api/marketplace?limit=20&cursor=123&category=Books&search=calculus&sort=Newest&maxPrice=50000
    */
   async getMarketplaceFeed(req, res) {
     try {
@@ -23,6 +23,10 @@ class MarketplaceController {
       const category = req.query.category ? String(req.query.category).trim() : undefined;
       const search = req.query.search ? String(req.query.search).trim() : undefined;
       const sort = req.query.sort ? String(req.query.sort).trim() : 'Newest';
+      const maxPrice = req.query.maxPrice !== undefined ? Number(req.query.maxPrice) : undefined;
+      const conditions = req.query.conditions;
+      const minRating = req.query.minRating !== undefined ? Number(req.query.minRating) : undefined;
+      const providerType = req.query.providerType ? String(req.query.providerType).trim() : undefined;
 
       if (!Number.isInteger(limit) || limit < 1 || limit > MAX_LIMIT) {
         return res.status(400).json({
@@ -51,6 +55,10 @@ class MarketplaceController {
         category,
         search,
         sort,
+        maxPrice,
+        conditions,
+        minRating,
+        providerType,
       });
 
       return res.status(200).json({
@@ -115,6 +123,129 @@ class MarketplaceController {
       return res.status(500).json({
         status: 'error',
         message: 'Internal server error while retrieving product',
+      });
+    }
+  }
+
+  /**
+   * Handle product listing creation
+   * POST /api/marketplace
+   */
+  async createProduct(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          status: 'error',
+          message: 'You must be logged in to post a product.',
+        });
+      }
+
+      const createdProduct = await marketplaceService.createProduct(userId, req.body);
+
+      return res.status(201).json({
+        status: 'success',
+        message: 'Product posted successfully!',
+        data: createdProduct,
+      });
+    } catch (error) {
+      console.error('Failed to create product:', error);
+      return res.status(400).json({
+        status: 'error',
+        message: error.message || 'Failed to create product listing.',
+      });
+    }
+  }
+
+  /**
+   * Handle fetching user's own listings
+   * GET /api/marketplace/my-listings
+   */
+  async getMyListings(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({
+          status: 'error',
+          message: 'You must be logged in to view your listings.',
+        });
+      }
+
+      const listings = await marketplaceService.getMyListings(userId);
+
+      return res.status(200).json({
+        status: 'success',
+        data: listings,
+      });
+    } catch (error) {
+      console.error('Failed to retrieve user listings:', error);
+      return res.status(500).json({
+        status: 'error',
+        message: 'Failed to retrieve your product listings.',
+      });
+    }
+  }
+
+  /**
+   * Handle updating product status
+   * PATCH /api/marketplace/:id/status
+   */
+  async updateProductStatus(req, res) {
+    try {
+      const id = Number(req.params.id);
+      const userId = req.user?.id;
+      const { status } = req.body;
+
+      if (!id || !status) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Product ID and status are required.',
+        });
+      }
+
+      const updated = await marketplaceService.updateProductStatus(id, userId, status);
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Product status updated successfully.',
+        data: updated,
+      });
+    } catch (error) {
+      console.error('Failed to update product status:', error);
+      return res.status(400).json({
+        status: 'error',
+        message: error.message || 'Failed to update product status.',
+      });
+    }
+  }
+
+  /**
+   * Handle deleting a product
+   * DELETE /api/marketplace/:id
+   */
+  async deleteProduct(req, res) {
+    try {
+      const id = Number(req.params.id);
+      const userId = req.user?.id;
+
+      if (!id) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Product ID is required.',
+        });
+      }
+
+      const result = await marketplaceService.deleteProduct(id, userId);
+
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+      });
+    } catch (error) {
+      console.error('Failed to delete product:', error);
+      return res.status(400).json({
+        status: 'error',
+        message: error.message || 'Failed to delete product.',
       });
     }
   }

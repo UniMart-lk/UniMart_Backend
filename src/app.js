@@ -3,8 +3,8 @@ import cors from 'cors';
 import compression from 'compression';
 
 import rentalRoutes from './routes/rental.routes.js';
-
 import authRoutes from './routes/auth.routes.js';
+import marketplaceRoutes from './routes/marketplace.routes.js';
 
 const app = express();
 
@@ -16,6 +16,7 @@ app.use(express.json());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/rentals', rentalRoutes);
+app.use('/api/marketplace', marketplaceRoutes);
 
 // Healthcheck route
 app.get('/api/health', (req, res) => {
