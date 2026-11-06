@@ -76,3 +76,7 @@ export const authorize = (...roles) => {
     next();
   };
 };
+
+// Aliases matching Member 1 specification and handshakes
+export const authenticateJWT = authenticate;
+export const requireRole = authorize;
