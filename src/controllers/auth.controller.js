@@ -91,6 +91,28 @@ class AuthController {
   }
 
   /**
+   * Update authenticated user profile details
+   * PUT /api/auth/profile
+   */
+  async updateProfile(req, res) {
+    try {
+      const userId = req.user.id;
+      const result = await authService.updateProfile(userId, req.body);
+      return res.status(200).json({
+        status: 'success',
+        message: 'Profile updated successfully',
+        data: result,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({
+        status: 'error',
+        message: error.message || 'Internal server error during profile update',
+      });
+    }
+  }
+
+  /**
    * Request a 6-digit password reset verification code
    * POST /api/auth/forgot-password
    */
