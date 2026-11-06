@@ -13,5 +13,6 @@ router.post('/reset-password', (req, res) => authController.resetPassword(req, r
 
 // Protected routes (to verify token using auth middleware)
 router.get('/me', authenticate, (req, res) => authController.getMe(req, res));
+router.put('/profile', authenticate, (req, res) => authController.updateProfile(req, res));
 
 export default router;
