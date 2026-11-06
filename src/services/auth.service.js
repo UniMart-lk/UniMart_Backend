@@ -138,7 +138,7 @@ class AuthService {
               universityEmail: isStudent ? (verificationData?.universityEmail || null) : null,
               universityIdNumber: isStudent ? (verificationData?.studentId || null) : null,
               nicNumber: !isStudent ? (verificationData?.identificationNumber || null) : null,
-              isCompleted: true,
+              isCompleted: false,
             },
           },
           providerProfile: {
@@ -388,6 +388,102 @@ class AuthService {
     return {
       message: 'Password has been reset successfully. You can now log in.',
     };
+  }
+
+  /**
+   * Update authenticated user profile details and mark completed
+   * @param {number} userId
+   * @param {object} profileData
+   */
+  async updateProfile(userId, profileData) {
+    const {
+      fullName,
+      university,
+      faculty,
+      studentRegistrationNumber,
+      nicNumber,
+      profilePictureUrl,
+      providerDisplayName,
+      serviceArea,
+      description,
+      businessName,
+      studentEvidenceUrl,
+      identityEvidenceUrl,
+    } = profileData || {};
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { userProfile: true, providerProfile: true },
+    });
+
+    if (!user) {
+      const error = new Error('User account not found.');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // Upsert UserProfile
+    await prisma.userProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        fullName: fullName || user.email.split('@')[0],
+        university: university || null,
+        faculty: faculty || null,
+        universityIdNumber: studentRegistrationNumber || null,
+        nicNumber: nicNumber || null,
+        profilePictureUrl: profilePictureUrl || null,
+        isCompleted: true,
+      },
+      update: {
+        fullName: fullName || undefined,
+        university: university !== undefined ? university : undefined,
+        faculty: faculty !== undefined ? faculty : undefined,
+        universityIdNumber: studentRegistrationNumber !== undefined ? studentRegistrationNumber : undefined,
+        nicNumber: nicNumber !== undefined ? nicNumber : undefined,
+        profilePictureUrl: profilePictureUrl !== undefined ? profilePictureUrl : undefined,
+        isCompleted: true,
+      },
+    });
+
+    // Update ProviderProfile if applicable
+    if (user.role === 'PROVIDER' || user.providerProfile) {
+      const combinedDescription = [
+        description,
+        serviceArea ? `Service Area: ${serviceArea}` : null,
+        businessName ? `Business Name: ${businessName}` : null,
+      ].filter(Boolean).join('\n');
+
+      const docUrl = studentEvidenceUrl || identityEvidenceUrl || null;
+
+      await prisma.providerProfile.upsert({
+        where: { userId },
+        create: {
+          userId,
+          providerType: user.userProfile?.userType === 'EXTERNAL' ? 'EXTERNAL_PROVIDER' : 'STUDENT_PROVIDER',
+          displayName: providerDisplayName || fullName || user.email.split('@')[0],
+          description: combinedDescription || null,
+          verificationDocUrl: docUrl,
+          verificationStatus: 'PENDING',
+        },
+        update: {
+          displayName: providerDisplayName || undefined,
+          description: combinedDescription || undefined,
+          verificationDocUrl: docUrl || undefined,
+        },
+      });
+    }
+
+    const updatedUser = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        userProfile: true,
+        providerProfile: true,
+      },
+    });
+
+    const { passwordHash, ...userWithoutPassword } = updatedUser;
+    return { user: userWithoutPassword };
   }
 }
 
