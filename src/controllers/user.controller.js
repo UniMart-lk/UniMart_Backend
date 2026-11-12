@@ -26,6 +26,12 @@ class UserController {
       }
 
       const { passwordHash, ...userWithoutPassword } = user;
+      if (userWithoutPassword.userProfile) {
+        userWithoutPassword.userProfile.studentEvidenceUrl =
+          userWithoutPassword.providerProfile?.verificationDocUrl ||
+          userWithoutPassword.userProfile?.privacySettings?.studentEvidenceUrl ||
+          null;
+      }
 
       return res.status(200).json({
         status: 'success',
