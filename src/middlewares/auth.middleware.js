@@ -44,6 +44,12 @@ export const authenticate = async (req, res, next) => {
     }
 
     const { passwordHash, ...userWithoutPassword } = user;
+    if (userWithoutPassword.userProfile) {
+      userWithoutPassword.userProfile.studentEvidenceUrl =
+        userWithoutPassword.providerProfile?.verificationDocUrl ||
+        userWithoutPassword.userProfile?.privacySettings?.studentEvidenceUrl ||
+        null;
+    }
     req.user = userWithoutPassword;
     next();
   } catch (error) {
