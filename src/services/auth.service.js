@@ -398,8 +398,11 @@ class AuthService {
   async updateProfile(userId, profileData) {
     const {
       fullName,
+      contactNumber,
       university,
       faculty,
+      department,
+      intakeBatch,
       studentRegistrationNumber,
       nicNumber,
       profilePictureUrl,
@@ -409,6 +412,9 @@ class AuthService {
       businessName,
       studentEvidenceUrl,
       identityEvidenceUrl,
+      isProvider,
+      providerType,
+      badgeType,
     } = profileData || {};
 
     const user = await prisma.user.findUnique({
@@ -422,59 +428,113 @@ class AuthService {
       throw error;
     }
 
-    // Upsert UserProfile
+    // Determine target roles and types
+    const shouldBeProvider =
+      Boolean(isProvider) ||
+      providerType === 'STUDENT_PROVIDER' ||
+      providerType === 'EXTERNAL_PROVIDER' ||
+      user.role === 'PROVIDER' ||
+      Boolean(user.providerProfile);
+
+    const isExternalType =
+      providerType === 'EXTERNAL_PROVIDER' ||
+      badgeType === 'EXTERNAL_PROVIDER' ||
+      user.providerProfile?.providerType === 'EXTERNAL_PROVIDER' ||
+      user.userProfile?.userType === 'EXTERNAL';
+
+    const targetUserType = isExternalType ? 'EXTERNAL' : 'STUDENT';
+    const targetProviderType = isExternalType ? 'EXTERNAL_PROVIDER' : 'STUDENT_PROVIDER';
+
+    // 1. Update User record (contactNumber, and role)
+    const userUpdateData = {};
+    if (contactNumber) userUpdateData.contactNumber = contactNumber.trim();
+    if (shouldBeProvider && user.role !== 'PROVIDER') userUpdateData.role = 'PROVIDER';
+
+    if (Object.keys(userUpdateData).length > 0) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: userUpdateData,
+      });
+    }
+
+    // Store custom student & university metadata in privacySettings Json column
+    const existingSettings =
+      typeof user.userProfile?.privacySettings === 'object' && user.userProfile?.privacySettings !== null
+        ? user.userProfile.privacySettings
+        : {};
+
+    const docUrl = studentEvidenceUrl || identityEvidenceUrl || existingSettings.studentEvidenceUrl || null;
+
+    const updatedSettings = {
+      ...existingSettings,
+      studentEvidenceUrl: docUrl,
+      department: department || existingSettings.department || null,
+      intakeBatch: intakeBatch || existingSettings.intakeBatch || null,
+      badgeType: badgeType || (shouldBeProvider ? targetProviderType : 'STUDENT'),
+    };
+
+    // 2. Upsert UserProfile in MySQL
     await prisma.userProfile.upsert({
       where: { userId },
       create: {
         userId,
         fullName: fullName || user.email.split('@')[0],
-        university: university || null,
-        faculty: faculty || null,
-        universityIdNumber: studentRegistrationNumber || null,
-        nicNumber: nicNumber || null,
+        contactNumber: contactNumber || user.contactNumber || null,
+        userType: targetUserType,
+        university: isExternalType ? null : (university || null),
+        faculty: isExternalType ? null : (faculty || null),
+        universityIdNumber: isExternalType ? null : (studentRegistrationNumber || null),
+        nicNumber: isExternalType ? (nicNumber || null) : null,
         profilePictureUrl: profilePictureUrl || null,
         isCompleted: true,
+        privacySettings: updatedSettings,
       },
       update: {
         fullName: fullName || undefined,
-        university: university !== undefined ? university : undefined,
-        faculty: faculty !== undefined ? faculty : undefined,
-        universityIdNumber: studentRegistrationNumber !== undefined ? studentRegistrationNumber : undefined,
-        nicNumber: nicNumber !== undefined ? nicNumber : undefined,
+        contactNumber: contactNumber !== undefined ? contactNumber : undefined,
+        userType: targetUserType,
+        university: isExternalType ? null : (university !== undefined ? university : undefined),
+        faculty: isExternalType ? null : (faculty !== undefined ? faculty : undefined),
+        universityIdNumber: isExternalType ? null : (studentRegistrationNumber !== undefined ? studentRegistrationNumber : undefined),
+        nicNumber: isExternalType ? (nicNumber !== undefined ? nicNumber : undefined) : null,
         profilePictureUrl: profilePictureUrl !== undefined ? profilePictureUrl : undefined,
         isCompleted: true,
+        privacySettings: updatedSettings,
       },
     });
 
-    // Update ProviderProfile if applicable
-    if (user.role === 'PROVIDER' || user.providerProfile) {
+    // 3. Update ProviderProfile if provider
+    if (shouldBeProvider) {
       const combinedDescription = [
         description,
         serviceArea ? `Service Area: ${serviceArea}` : null,
         businessName ? `Business Name: ${businessName}` : null,
       ].filter(Boolean).join('\n');
 
-      const docUrl = studentEvidenceUrl || identityEvidenceUrl || null;
-
       await prisma.providerProfile.upsert({
         where: { userId },
         create: {
           userId,
-          providerType: user.userProfile?.userType === 'EXTERNAL' ? 'EXTERNAL_PROVIDER' : 'STUDENT_PROVIDER',
+          providerType: targetProviderType,
           displayName: providerDisplayName || fullName || user.email.split('@')[0],
           description: combinedDescription || null,
           verificationDocUrl: docUrl,
-          verificationStatus: 'PENDING',
+          verificationStatus: 'VERIFIED',
+          verifiedAt: new Date(),
         },
         update: {
+          providerType: targetProviderType,
           displayName: providerDisplayName || undefined,
           description: combinedDescription || undefined,
           verificationDocUrl: docUrl || undefined,
+          verificationStatus: 'VERIFIED',
+          verifiedAt: new Date(),
         },
       });
     }
 
-    const updatedUser = await prisma.user.findUnique({
+    // 4. Fetch the refreshed user from database
+    const refreshedUser = await prisma.user.findUnique({
       where: { id: userId },
       include: {
         userProfile: true,
@@ -482,7 +542,16 @@ class AuthService {
       },
     });
 
-    const { passwordHash, ...userWithoutPassword } = updatedUser;
+    const { passwordHash, ...userWithoutPassword } = refreshedUser;
+
+    // Attach studentEvidenceUrl on userProfile for immediate frontend consumption
+    if (userWithoutPassword.userProfile) {
+      userWithoutPassword.userProfile.studentEvidenceUrl =
+        docUrl ||
+        userWithoutPassword.providerProfile?.verificationDocUrl ||
+        userWithoutPassword.userProfile?.privacySettings?.studentEvidenceUrl;
+    }
+
     return { user: userWithoutPassword };
   }
 }
