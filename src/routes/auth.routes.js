@@ -6,6 +6,7 @@ const router = Router();
 
 // Public routes
 router.post('/login', (req, res) => authController.login(req, res));
+router.post('/send-verification-otp', (req, res) => authController.sendVerificationOtp(req, res));
 router.post('/register', (req, res) => authController.register(req, res));
 router.post('/forgot-password', (req, res) => authController.forgotPassword(req, res));
 router.post('/verify-reset-code', (req, res) => authController.verifyResetCode(req, res));
@@ -13,5 +14,6 @@ router.post('/reset-password', (req, res) => authController.resetPassword(req, r
 
 // Protected routes (to verify token using auth middleware)
 router.get('/me', authenticate, (req, res) => authController.getMe(req, res));
+router.put('/profile', authenticate, (req, res) => authController.updateProfile(req, res));
 
 export default router;

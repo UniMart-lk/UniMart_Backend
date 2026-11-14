@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/prisma.js';
+import emailService from './email.service.js';
 
 class AuthService {
   /**
@@ -75,11 +76,62 @@ class AuthService {
   }
 
   /**
+   * Send a 6-digit email verification OTP before registration
+   * @param {string} email
+   */
+  async sendVerificationOtp(email) {
+    if (!email) {
+      const error = new Error('Email address is required.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+    });
+
+    if (existingUser) {
+      const error = new Error('An account with this email address already exists.');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+
+    emailVerificationStore.set(trimmedEmail, {
+      code: otpCode,
+      expiresAt,
+    });
+
+    try {
+      await emailService.sendOtpEmail({
+        to: trimmedEmail,
+        otpCode,
+        purpose: 'Email Verification',
+      });
+    } catch (err) {
+      console.error('[EmailService] Failed to send verification OTP:', err.message);
+      const error = new Error('Failed to send verification email. Please check the email address and try again.');
+      error.statusCode = 502;
+      throw error;
+    }
+
+    return {
+      message: 'Verification code sent to your email address.',
+      email: trimmedEmail,
+      expiresIn: 600,
+    };
+  }
+
+  /**
    * Register a new user (Buyer/Renter or Provider)
-   * @param {Object} data - { email, password, contactNumber, role, providerType, verificationData }
+   * @param {Object} data - { email, password, contactNumber, role, providerType, verificationData, otpCode }
    * @returns {Object} { token, user }
    */
-  async register({ email, password, contactNumber, role = 'USER', providerType, verificationData }) {
+  async register({ email, password, contactNumber, role = 'USER', providerType, verificationData, otpCode }) {
     if (!email || !password) {
       const error = new Error('Email and password are required.');
       error.statusCode = 400;
@@ -88,6 +140,30 @@ class AuthService {
 
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedContact = contactNumber ? contactNumber.trim() : null;
+
+    // If an OTP verification session exists or otpCode was submitted, verify it
+    let isEmailVerified = false;
+    if (otpCode) {
+      const record = emailVerificationStore.get(trimmedEmail);
+      if (!record) {
+        const error = new Error('Verification code expired or not requested. Please request a new code.');
+        error.statusCode = 400;
+        throw error;
+      }
+      if (Date.now() > record.expiresAt) {
+        emailVerificationStore.delete(trimmedEmail);
+        const error = new Error('Verification code has expired. Please request a new code.');
+        error.statusCode = 400;
+        throw error;
+      }
+      if (record.code !== otpCode.toString().trim()) {
+        const error = new Error('Invalid verification code. Please check your email and try again.');
+        error.statusCode = 400;
+        throw error;
+      }
+      emailVerificationStore.delete(trimmedEmail);
+      isEmailVerified = true;
+    }
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -128,6 +204,7 @@ class AuthService {
           contactNumber: trimmedContact,
           role: userRole,
           status: 'ACTIVE',
+          emailVerified: isEmailVerified,
           userProfile: {
             create: {
               fullName: verificationData?.fullName || displayName,
@@ -138,7 +215,7 @@ class AuthService {
               universityEmail: isStudent ? (verificationData?.universityEmail || null) : null,
               universityIdNumber: isStudent ? (verificationData?.studentId || null) : null,
               nicNumber: !isStudent ? (verificationData?.identificationNumber || null) : null,
-              isCompleted: true,
+              isCompleted: false,
             },
           },
           providerProfile: {
@@ -164,6 +241,7 @@ class AuthService {
           contactNumber: trimmedContact,
           role: 'USER',
           status: 'ACTIVE',
+          emailVerified: isEmailVerified,
           userProfile: {
             create: {
               fullName: trimmedEmail.split('@')[0],
@@ -194,6 +272,17 @@ class AuthService {
     );
 
     const { passwordHash: _, ...userWithoutPassword } = createdUser;
+
+    // Send welcome email asynchronously (never blocks registration response)
+    emailService
+      .sendWelcomeEmail({
+        to: createdUser.email,
+        fullName: createdUser.userProfile?.fullName,
+        role: createdUser.role,
+      })
+      .catch((err) => {
+        console.warn('[EmailService] Welcome email failed:', err.message);
+      });
 
     return {
       token,
@@ -243,18 +332,23 @@ class AuthService {
       isVerified: false,
     });
 
-    console.log(`\n==============================================================`);
-    console.log(`🔑 [UniMart PASSWORD RESET OTP]`);
-    console.log(`   Email: ${trimmedEmail}`);
-    console.log(`   Verification Code: ${otpCode}`);
-    console.log(`   Valid for: 10 minutes (expires at: ${new Date(expiresAt).toLocaleTimeString()})`);
-    console.log(`==============================================================\n`);
+    try {
+      await emailService.sendOtpEmail({
+        to: trimmedEmail,
+        otpCode,
+        purpose: 'Password Reset',
+      });
+    } catch (err) {
+      console.error('[EmailService] Failed to send password reset email:', err.message);
+      const error = new Error('Failed to send password reset email. Please try again.');
+      error.statusCode = 502;
+      throw error;
+    }
 
     return {
-      message: 'If an account exists for this email address, we’ve sent a 6-digit verification code.',
+      message: 'We have sent a 6-digit verification code to your email address.',
       email: trimmedEmail,
       expiresIn: 600,
-      devCode: process.env.NODE_ENV !== 'production' ? otpCode : undefined,
     };
   }
 
@@ -389,9 +483,194 @@ class AuthService {
       message: 'Password has been reset successfully. You can now log in.',
     };
   }
+
+  /**
+   * Update authenticated user profile details and mark completed
+   * @param {number} userId
+   * @param {object} profileData
+   */
+  async updateProfile(userId, profileData) {
+    const {
+      fullName,
+      contactNumber,
+      university,
+      faculty,
+      department,
+      intakeBatch,
+      studentRegistrationNumber,
+      nicNumber,
+      profilePictureUrl,
+      providerDisplayName,
+      serviceArea,
+      description,
+      businessName,
+      studentEvidenceUrl,
+      identityEvidenceUrl,
+      isProvider,
+      providerType,
+      badgeType,
+    } = profileData || {};
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      include: { userProfile: true, providerProfile: true },
+    });
+
+    if (!user) {
+      const error = new Error('User account not found.');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // Determine target roles and types
+    const shouldBeProvider =
+      Boolean(isProvider) ||
+      providerType === 'STUDENT_PROVIDER' ||
+      providerType === 'EXTERNAL_PROVIDER' ||
+      user.role === 'PROVIDER' ||
+      Boolean(user.providerProfile);
+
+    const isExternalType =
+      providerType === 'EXTERNAL_PROVIDER' ||
+      badgeType === 'EXTERNAL_PROVIDER' ||
+      user.providerProfile?.providerType === 'EXTERNAL_PROVIDER' ||
+      user.userProfile?.userType === 'EXTERNAL';
+
+    const targetUserType = isExternalType ? 'EXTERNAL' : 'STUDENT';
+    const targetProviderType = isExternalType ? 'EXTERNAL_PROVIDER' : 'STUDENT_PROVIDER';
+
+    // 1. Update User record (contactNumber, and role)
+    const userUpdateData = {};
+    if (contactNumber) userUpdateData.contactNumber = contactNumber.trim();
+    if (shouldBeProvider && user.role !== 'PROVIDER') userUpdateData.role = 'PROVIDER';
+
+    if (Object.keys(userUpdateData).length > 0) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: userUpdateData,
+      });
+    }
+
+    // Store custom student & university metadata in privacySettings Json column
+    const existingSettings =
+      typeof user.userProfile?.privacySettings === 'object' && user.userProfile?.privacySettings !== null
+        ? user.userProfile.privacySettings
+        : {};
+
+    const docUrl = studentEvidenceUrl || identityEvidenceUrl || existingSettings.studentEvidenceUrl || null;
+
+    const updatedSettings = {
+      ...existingSettings,
+      studentEvidenceUrl: docUrl,
+      department: department || existingSettings.department || null,
+      intakeBatch: intakeBatch || existingSettings.intakeBatch || null,
+      badgeType: badgeType || (shouldBeProvider ? targetProviderType : 'STUDENT'),
+    };
+
+    // 2. Upsert UserProfile in MySQL
+    await prisma.userProfile.upsert({
+      where: { userId },
+      create: {
+        userId,
+        fullName: fullName || user.email.split('@')[0],
+        contactNumber: contactNumber || user.contactNumber || null,
+        userType: targetUserType,
+        university: isExternalType ? null : (university || null),
+        faculty: isExternalType ? null : (faculty || null),
+        universityIdNumber: isExternalType ? null : (studentRegistrationNumber || null),
+        nicNumber: isExternalType ? (nicNumber || null) : null,
+        profilePictureUrl: profilePictureUrl || null,
+        isCompleted: true,
+        privacySettings: updatedSettings,
+      },
+      update: {
+        fullName: fullName || undefined,
+        contactNumber: contactNumber !== undefined ? contactNumber : undefined,
+        userType: targetUserType,
+        university: isExternalType ? null : (university !== undefined ? university : undefined),
+        faculty: isExternalType ? null : (faculty !== undefined ? faculty : undefined),
+        universityIdNumber: isExternalType ? null : (studentRegistrationNumber !== undefined ? studentRegistrationNumber : undefined),
+        nicNumber: isExternalType ? (nicNumber !== undefined ? nicNumber : undefined) : null,
+        profilePictureUrl: profilePictureUrl !== undefined ? profilePictureUrl : undefined,
+        isCompleted: true,
+        privacySettings: updatedSettings,
+      },
+    });
+
+    // 3. Update ProviderProfile if provider
+    if (shouldBeProvider) {
+      const combinedDescription = [
+        description,
+        serviceArea ? `Service Area: ${serviceArea}` : null,
+        businessName ? `Business Name: ${businessName}` : null,
+      ].filter(Boolean).join('\n');
+
+      await prisma.providerProfile.upsert({
+        where: { userId },
+        create: {
+          userId,
+          providerType: targetProviderType,
+          displayName: providerDisplayName || fullName || user.email.split('@')[0],
+          description: combinedDescription || null,
+          verificationDocUrl: docUrl,
+          verificationStatus: 'VERIFIED',
+          verifiedAt: new Date(),
+        },
+        update: {
+          providerType: targetProviderType,
+          displayName: providerDisplayName || undefined,
+          description: combinedDescription || undefined,
+          verificationDocUrl: docUrl || undefined,
+          verificationStatus: 'VERIFIED',
+          verifiedAt: new Date(),
+        },
+      });
+    }
+
+    // 4. Fetch the refreshed user from database
+    const refreshedUser = await prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        userProfile: true,
+        providerProfile: true,
+      },
+    });
+
+    const { passwordHash, ...userWithoutPassword } = refreshedUser;
+
+    // Attach studentEvidenceUrl on userProfile for immediate frontend consumption
+    if (userWithoutPassword.userProfile) {
+      userWithoutPassword.userProfile.studentEvidenceUrl =
+        docUrl ||
+        userWithoutPassword.providerProfile?.verificationDocUrl ||
+        userWithoutPassword.userProfile?.privacySettings?.studentEvidenceUrl;
+    }
+
+    // Send verification email confirmation the first time the profile is completed
+    if (!user.userProfile?.isCompleted) {
+      const accountLabel = shouldBeProvider
+        ? isExternalType
+          ? 'External Provider'
+          : 'Student Provider'
+        : 'Student Buyer';
+
+      emailService
+        .sendProfileCompletedEmail({
+          to: refreshedUser.email,
+          fullName: refreshedUser.userProfile?.fullName,
+          accountType: accountLabel,
+        })
+        .catch((err) => {
+          console.warn('[EmailService] Profile completion email failed:', err.message);
+        });
+    }
+
+    return { user: userWithoutPassword };
+  }
 }
 
-// In-memory store for password reset verification codes
+// In-memory stores for email verification & password reset OTP codes
+const emailVerificationStore = new Map();
 const resetCodeStore = new Map();
 
 export default new AuthService();

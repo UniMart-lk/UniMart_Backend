@@ -23,11 +23,9 @@ export const authenticate = async (req, res, next) => {
     // Fetch user to ensure user still exists and is active
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        status: true,
+      include: {
+        userProfile: true,
+        providerProfile: true,
       },
     });
 
@@ -45,7 +43,14 @@ export const authenticate = async (req, res, next) => {
       });
     }
 
-    req.user = user;
+    const { passwordHash, ...userWithoutPassword } = user;
+    if (userWithoutPassword.userProfile) {
+      userWithoutPassword.userProfile.studentEvidenceUrl =
+        userWithoutPassword.providerProfile?.verificationDocUrl ||
+        userWithoutPassword.userProfile?.privacySettings?.studentEvidenceUrl ||
+        null;
+    }
+    req.user = userWithoutPassword;
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -77,3 +82,7 @@ export const authorize = (...roles) => {
     next();
   };
 };
+
+// Aliases matching Member 1 specification and handshakes
+export const authenticateJWT = authenticate;
+export const requireRole = authorize;

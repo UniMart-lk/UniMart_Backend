@@ -33,12 +33,43 @@ class AuthController {
   }
 
   /**
+   * Send a 6-digit email verification OTP before registration
+   * POST /api/auth/send-verification-otp
+   */
+  async sendVerificationOtp(req, res) {
+    try {
+      const { email } = req.body || {};
+
+      if (!email) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Please provide an email address.',
+        });
+      }
+
+      const result = await authService.sendVerificationOtp(email);
+
+      return res.status(200).json({
+        status: 'success',
+        message: result.message,
+        data: result,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({
+        status: 'error',
+        message: error.message || 'Failed to send verification code.',
+      });
+    }
+  }
+
+  /**
    * Handle user registration request
    * POST /api/auth/register
    */
   async register(req, res) {
     try {
-      const { email, password, contactNumber, role, providerType, verificationData } = req.body || {};
+      const { email, password, contactNumber, role, providerType, verificationData, otpCode } = req.body || {};
 
       if (!email || !password) {
         return res.status(400).json({
@@ -54,6 +85,7 @@ class AuthController {
         role,
         providerType,
         verificationData,
+        otpCode,
       });
 
       return res.status(201).json({
@@ -86,6 +118,28 @@ class AuthController {
       return res.status(500).json({
         status: 'error',
         message: 'Internal server error',
+      });
+    }
+  }
+
+  /**
+   * Update authenticated user profile details
+   * PUT /api/auth/profile
+   */
+  async updateProfile(req, res) {
+    try {
+      const userId = req.user.id;
+      const result = await authService.updateProfile(userId, req.body);
+      return res.status(200).json({
+        status: 'success',
+        message: 'Profile updated successfully',
+        data: result,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({
+        status: 'error',
+        message: error.message || 'Internal server error during profile update',
       });
     }
   }
