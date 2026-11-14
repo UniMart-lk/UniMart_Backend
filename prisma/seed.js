@@ -30,7 +30,33 @@ async function main() {
     });
   }
 
-  // 2. Seed Admin User
+  // 2. Seed Admin Users
+  const primaryAdminPassword = await bcrypt.hash('admin123', 10);
+
+  await prisma.user.upsert({
+    where: { email: 'admin@unimart.lk' },
+    update: {
+      passwordHash: primaryAdminPassword,
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      emailVerified: true,
+    },
+    create: {
+      email: 'admin@unimart.lk',
+      passwordHash: primaryAdminPassword,
+      role: 'ADMIN',
+      status: 'ACTIVE',
+      emailVerified: true,
+      userProfile: {
+        create: {
+          fullName: 'Super Admin',
+          userType: 'EXTERNAL',
+          isCompleted: true,
+        },
+      },
+    },
+  });
+
   await prisma.user.upsert({
     where: { email: 'admin@unimart.com' },
     update: {},
