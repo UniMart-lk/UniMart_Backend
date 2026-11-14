@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/prisma.js';
+import emailService from './email.service.js';
 
 class AuthService {
   /**
@@ -75,11 +76,62 @@ class AuthService {
   }
 
   /**
+   * Send a 6-digit email verification OTP before registration
+   * @param {string} email
+   */
+  async sendVerificationOtp(email) {
+    if (!email) {
+      const error = new Error('Email address is required.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+
+    const existingUser = await prisma.user.findUnique({
+      where: { email: trimmedEmail },
+    });
+
+    if (existingUser) {
+      const error = new Error('An account with this email address already exists.');
+      error.statusCode = 409;
+      throw error;
+    }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000;
+
+    emailVerificationStore.set(trimmedEmail, {
+      code: otpCode,
+      expiresAt,
+    });
+
+    try {
+      await emailService.sendOtpEmail({
+        to: trimmedEmail,
+        otpCode,
+        purpose: 'Email Verification',
+      });
+    } catch (err) {
+      console.error('[EmailService] Failed to send verification OTP:', err.message);
+      const error = new Error('Failed to send verification email. Please check the email address and try again.');
+      error.statusCode = 502;
+      throw error;
+    }
+
+    return {
+      message: 'Verification code sent to your email address.',
+      email: trimmedEmail,
+      expiresIn: 600,
+    };
+  }
+
+  /**
    * Register a new user (Buyer/Renter or Provider)
-   * @param {Object} data - { email, password, contactNumber, role, providerType, verificationData }
+   * @param {Object} data - { email, password, contactNumber, role, providerType, verificationData, otpCode }
    * @returns {Object} { token, user }
    */
-  async register({ email, password, contactNumber, role = 'USER', providerType, verificationData }) {
+  async register({ email, password, contactNumber, role = 'USER', providerType, verificationData, otpCode }) {
     if (!email || !password) {
       const error = new Error('Email and password are required.');
       error.statusCode = 400;
@@ -88,6 +140,30 @@ class AuthService {
 
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedContact = contactNumber ? contactNumber.trim() : null;
+
+    // If an OTP verification session exists or otpCode was submitted, verify it
+    let isEmailVerified = false;
+    if (otpCode) {
+      const record = emailVerificationStore.get(trimmedEmail);
+      if (!record) {
+        const error = new Error('Verification code expired or not requested. Please request a new code.');
+        error.statusCode = 400;
+        throw error;
+      }
+      if (Date.now() > record.expiresAt) {
+        emailVerificationStore.delete(trimmedEmail);
+        const error = new Error('Verification code has expired. Please request a new code.');
+        error.statusCode = 400;
+        throw error;
+      }
+      if (record.code !== otpCode.toString().trim()) {
+        const error = new Error('Invalid verification code. Please check your email and try again.');
+        error.statusCode = 400;
+        throw error;
+      }
+      emailVerificationStore.delete(trimmedEmail);
+      isEmailVerified = true;
+    }
 
     // Check if user already exists
     const existingUser = await prisma.user.findUnique({
@@ -128,6 +204,7 @@ class AuthService {
           contactNumber: trimmedContact,
           role: userRole,
           status: 'ACTIVE',
+          emailVerified: isEmailVerified,
           userProfile: {
             create: {
               fullName: verificationData?.fullName || displayName,
@@ -164,6 +241,7 @@ class AuthService {
           contactNumber: trimmedContact,
           role: 'USER',
           status: 'ACTIVE',
+          emailVerified: isEmailVerified,
           userProfile: {
             create: {
               fullName: trimmedEmail.split('@')[0],
@@ -194,6 +272,17 @@ class AuthService {
     );
 
     const { passwordHash: _, ...userWithoutPassword } = createdUser;
+
+    // Send welcome email asynchronously (never blocks registration response)
+    emailService
+      .sendWelcomeEmail({
+        to: createdUser.email,
+        fullName: createdUser.userProfile?.fullName,
+        role: createdUser.role,
+      })
+      .catch((err) => {
+        console.warn('[EmailService] Welcome email failed:', err.message);
+      });
 
     return {
       token,
@@ -243,18 +332,23 @@ class AuthService {
       isVerified: false,
     });
 
-    console.log(`\n==============================================================`);
-    console.log(`🔑 [UniMart PASSWORD RESET OTP]`);
-    console.log(`   Email: ${trimmedEmail}`);
-    console.log(`   Verification Code: ${otpCode}`);
-    console.log(`   Valid for: 10 minutes (expires at: ${new Date(expiresAt).toLocaleTimeString()})`);
-    console.log(`==============================================================\n`);
+    try {
+      await emailService.sendOtpEmail({
+        to: trimmedEmail,
+        otpCode,
+        purpose: 'Password Reset',
+      });
+    } catch (err) {
+      console.error('[EmailService] Failed to send password reset email:', err.message);
+      const error = new Error('Failed to send password reset email. Please try again.');
+      error.statusCode = 502;
+      throw error;
+    }
 
     return {
-      message: 'If an account exists for this email address, we’ve sent a 6-digit verification code.',
+      message: 'We have sent a 6-digit verification code to your email address.',
       email: trimmedEmail,
       expiresIn: 600,
-      devCode: process.env.NODE_ENV !== 'production' ? otpCode : undefined,
     };
   }
 
@@ -552,11 +646,31 @@ class AuthService {
         userWithoutPassword.userProfile?.privacySettings?.studentEvidenceUrl;
     }
 
+    // Send verification email confirmation the first time the profile is completed
+    if (!user.userProfile?.isCompleted) {
+      const accountLabel = shouldBeProvider
+        ? isExternalType
+          ? 'External Provider'
+          : 'Student Provider'
+        : 'Student Buyer';
+
+      emailService
+        .sendProfileCompletedEmail({
+          to: refreshedUser.email,
+          fullName: refreshedUser.userProfile?.fullName,
+          accountType: accountLabel,
+        })
+        .catch((err) => {
+          console.warn('[EmailService] Profile completion email failed:', err.message);
+        });
+    }
+
     return { user: userWithoutPassword };
   }
 }
 
-// In-memory store for password reset verification codes
+// In-memory stores for email verification & password reset OTP codes
+const emailVerificationStore = new Map();
 const resetCodeStore = new Map();
 
 export default new AuthService();
