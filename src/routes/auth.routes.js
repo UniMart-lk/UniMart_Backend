@@ -6,6 +6,7 @@ const router = Router();
 
 // Public routes
 router.post('/login', (req, res) => authController.login(req, res));
+router.post('/admin/login', (req, res) => authController.adminLogin(req, res));
 router.post('/send-verification-otp', (req, res) => authController.sendVerificationOtp(req, res));
 router.post('/register', (req, res) => authController.register(req, res));
 router.post('/forgot-password', (req, res) => authController.forgotPassword(req, res));
