@@ -6,10 +6,10 @@ import emailService from './email.service.js';
 class AuthService {
   /**
    * Authenticate a user with email and password
-   * @param {Object} credentials - { email, password }
+   * @param {Object} credentials - { email, password, requiredRole }
    * @returns {Object} { token, user }
    */
-  async login({ email, password }) {
+  async login({ email, password, requiredRole = null }) {
     if (!email || !password) {
       const error = new Error('Email and password are required');
       error.statusCode = 400;
@@ -49,6 +49,13 @@ class AuthService {
     if (!isPasswordValid) {
       const error = new Error('Invalid email or password');
       error.statusCode = 401;
+      throw error;
+    }
+
+    // Enforce role check when logging in through restricted portals (e.g., Admin Panel)
+    if (requiredRole && user.role !== requiredRole) {
+      const error = new Error('Access denied. Admin access is restricted to authorized personnel only.');
+      error.statusCode = 403;
       throw error;
     }
 
