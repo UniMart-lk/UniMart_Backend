@@ -249,4 +249,43 @@ describe('Member 1: Categories & Admin Tests', () => {
     const pendingBody = await pendingRes.json();
     assert.ok(Array.isArray(pendingBody.data.providers));
   });
+
+  test('POST /api/auth/admin/login authenticates admin@unimart.lk and rejects non-admin accounts', async () => {
+    const okRes = await fetch(`${baseUrl}/api/auth/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@unimart.lk',
+        password: 'admin123',
+      }),
+    });
+
+    assert.equal(okRes.status, 200);
+    const okBody = await okRes.json();
+    assert.equal(okBody.status, 'success');
+    assert.equal(okBody.data.user.role, 'ADMIN');
+    assert.ok(okBody.data.token);
+
+    // Wrong password -> 401
+    const badPassRes = await fetch(`${baseUrl}/api/auth/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@unimart.lk',
+        password: 'wrongpassword',
+      }),
+    });
+    assert.equal(badPassRes.status, 401);
+
+    // Non-admin user -> 403
+    const nonAdminRes = await fetch(`${baseUrl}/api/auth/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'dilshan@campus.ac.lk',
+        password: 'Password123!',
+      }),
+    });
+    assert.equal(nonAdminRes.status, 403);
+  });
 });
