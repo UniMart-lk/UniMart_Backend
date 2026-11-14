@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
+process.env.DISABLE_EMAIL_SENDING = 'true';
 
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -112,6 +113,43 @@ describe('Member 1: Auth & User Profile Tests', () => {
     const body = await res.json();
     assert.equal(body.status, 'success');
     assert.equal(body.data.user.userProfile.isCompleted, true);
+  });
+
+  test('POST /api/auth/send-verification-otp sends OTP for new email and rejects invalid OTP on register', async () => {
+    const freshEmail = `otp_${ts}@ms.sab.ac.lk`;
+    const otpRes = await fetch(`${baseUrl}/api/auth/send-verification-otp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: freshEmail }),
+    });
+
+    assert.equal(otpRes.status, 200);
+    const otpBody = await otpRes.json();
+    assert.equal(otpBody.status, 'success');
+
+    const badRegRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: freshEmail,
+        password: 'Password123!',
+        otpCode: '000000',
+      }),
+    });
+
+    assert.equal(badRegRes.status, 400);
+  });
+
+  test('POST /api/auth/forgot-password accepts registered email', async () => {
+    const res = await fetch(`${baseUrl}/api/auth/forgot-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: testStudentEmail }),
+    });
+
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.status, 'success');
   });
 });
 
