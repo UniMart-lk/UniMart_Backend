@@ -52,6 +52,7 @@ enum ProductCondition {
   LIKE_NEW
   GOOD
   FAIR
+  USED
 }
 
 enum ProductStatus {
@@ -269,17 +270,23 @@ model Category {
 // --------------------------------------------------------
 
 model MarketplaceProduct {
-  id          Int              @id @default(autoincrement())
-  providerId  Int              @map("provider_id")
-  categoryId  Int              @map("category_id")
-  title       String           @db.VarChar(200)
-  description String           @db.Text
-  condition   ProductCondition
-  price       Decimal          @db.Decimal(10, 2)
-  location    String           @db.VarChar(200)
-  status      ProductStatus    @default(AVAILABLE)
-  createdAt   DateTime         @default(now()) @map("created_at")
-  updatedAt   DateTime         @updatedAt @map("updated_at")
+  id               Int              @id @default(autoincrement())
+  providerId       Int              @map("provider_id")
+  categoryId       Int              @map("category_id")
+  title            String           @db.VarChar(200)
+  description      String           @db.Text
+  condition        ProductCondition
+  price            Decimal          @db.Decimal(10, 2)
+  location         String           @db.VarChar(200)
+  status           ProductStatus    @default(AVAILABLE)
+  details          Json?
+  locationDetails  Json?            @map("location_details")
+  allowNegotiation Boolean          @default(true) @map("allow_negotiation")
+  reviews          Json?
+  viewsCount       Int              @default(0) @map("views_count")
+  inquiriesCount   Int              @default(0) @map("inquiries_count")
+  createdAt        DateTime         @default(now()) @map("created_at")
+  updatedAt        DateTime         @updatedAt @map("updated_at")
 
   // Relationships
   provider ProviderProfile @relation(fields: [providerId], references: [id], onDelete: Cascade)
