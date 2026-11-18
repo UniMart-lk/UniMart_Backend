@@ -199,6 +199,66 @@ describe('Member 1: Provider Flow Tests', () => {
     assert.equal(body.data.provider.displayName, 'Campus Tools Hub');
     assert.equal(body.data.provider.verificationStatus, 'PENDING');
   });
+
+  test('PUT /api/auth/profile keeps provider PENDING until Admin approves via /api/admin/providers/:id/verify', async () => {
+    const profileRes = await fetch(`${baseUrl}/api/auth/profile`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${providerToken}`,
+      },
+      body: JSON.stringify({
+        fullName: 'Campus Tools Owner',
+        contactNumber: '+94779990000',
+        providerDisplayName: 'Campus Tools Hub',
+        isProvider: true,
+        providerType: 'STUDENT_PROVIDER',
+        studentEvidenceUrl: 'id_doc_sample.pdf',
+      }),
+    });
+
+    assert.equal(profileRes.status, 200);
+    const profileBody = await profileRes.json();
+    assert.equal(profileBody.data.user.userProfile.isCompleted, true);
+    assert.equal(profileBody.data.user.providerProfile.verificationStatus, 'PENDING');
+    const providerId = profileBody.data.user.providerProfile.id;
+
+    // Login as admin and inspect verificationChecks + approve
+    const adminLoginRes = await fetch(`${baseUrl}/api/auth/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'admin@unimart.lk', password: 'admin123' }),
+    });
+    assert.equal(adminLoginRes.status, 200);
+    const adminToken = (await adminLoginRes.json()).data.token;
+
+    const detailRes = await fetch(`${baseUrl}/api/admin/providers/${providerId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(detailRes.status, 200);
+    const detailBody = await detailRes.json();
+    assert.equal(detailBody.data.provider.verificationChecks.profileCompleted, true);
+    assert.equal(detailBody.data.provider.verificationChecks.noDuplicateAccount, true);
+    assert.equal(detailBody.data.provider.verificationChecks.noViolations, true);
+
+    const approveRes = await fetch(`${baseUrl}/api/admin/providers/${providerId}/verify`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ status: 'VERIFIED' }),
+    });
+    assert.equal(approveRes.status, 200);
+    assert.equal((await approveRes.json()).data.provider.verificationStatus, 'VERIFIED');
+
+    // Verify provider /auth/me now reflects VERIFIED
+    const meRes = await fetch(`${baseUrl}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${providerToken}` },
+    });
+    assert.equal(meRes.status, 200);
+    assert.equal((await meRes.json()).data.user.providerProfile.verificationStatus, 'VERIFIED');
+  });
 });
 
 describe('Member 1: Categories & Admin Tests', () => {
