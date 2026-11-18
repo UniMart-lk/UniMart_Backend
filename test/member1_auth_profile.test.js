@@ -288,4 +288,108 @@ describe('Member 1: Categories & Admin Tests', () => {
     });
     assert.equal(nonAdminRes.status, 403);
   });
+
+  test('Admin User Management endpoints filter, fetch details, update status, and bulk delete', async () => {
+    const loginRes = await fetch(`${baseUrl}/api/auth/admin/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: 'admin@unimart.lk',
+        password: 'admin123',
+      }),
+    });
+    assert.equal(loginRes.status, 200);
+    const { token: adminToken } = (await loginRes.json()).data;
+
+    // Create a temporary test user for status toggle & delete verification
+    const tempEmail = `um_test_${Date.now()}@ms.sab.ac.lk`;
+    const regRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: tempEmail,
+        password: 'Password123!',
+        role: 'USER',
+      }),
+    });
+    assert.equal(regRes.status, 201);
+    const tempUserId = (await regRes.json()).data.user.id;
+
+    // List users with excludeRole=ADMIN and search
+    const listRes = await fetch(
+      `${baseUrl}/api/admin/users?excludeRole=ADMIN&search=${encodeURIComponent(tempEmail)}&limit=6&sort=recent`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    assert.equal(listRes.status, 200);
+    const listBody = await listRes.json();
+    assert.equal(listBody.data.users.length, 1);
+    assert.equal(listBody.data.users[0].id, tempUserId);
+    assert.equal(typeof listBody.counts.all, 'number');
+    assert.equal(typeof listBody.counts.students, 'number');
+    assert.equal(typeof listBody.counts.external, 'number');
+    assert.equal(typeof listBody.counts.suspended, 'number');
+
+    // Fetch single user details
+    const detailRes = await fetch(`${baseUrl}/api/admin/users/${tempUserId}`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(detailRes.status, 200);
+    const detailBody = await detailRes.json();
+    assert.equal(detailBody.data.user.email, tempEmail);
+
+    // Bulk suspend -> then activate single
+    const bulkSuspendRes = await fetch(`${baseUrl}/api/admin/users/bulk-status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ ids: [tempUserId], status: 'SUSPENDED' }),
+    });
+    assert.equal(bulkSuspendRes.status, 200);
+
+    const activateRes = await fetch(`${baseUrl}/api/admin/users/${tempUserId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ status: 'ACTIVE' }),
+    });
+    assert.equal(activateRes.status, 200);
+    assert.equal((await activateRes.json()).data.user.status, 'ACTIVE');
+
+    // Clean up temporary user via bulk delete
+    const deleteRes = await fetch(`${baseUrl}/api/admin/users/bulk-delete`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${adminToken}`,
+      },
+      body: JSON.stringify({ ids: [tempUserId] }),
+    });
+    assert.equal(deleteRes.status, 200);
+    assert.equal((await deleteRes.json()).data.deletedCount, 1);
+
+    // List providers & fetch provider details
+    const providersRes = await fetch(`${baseUrl}/api/admin/providers?limit=6&sort=recent`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(providersRes.status, 200);
+    const providersBody = await providersRes.json();
+    assert.ok(Array.isArray(providersBody.data.providers));
+    assert.equal(typeof providersBody.counts.all, 'number');
+    assert.equal(typeof providersBody.counts.studentProviders, 'number');
+    assert.equal(typeof providersBody.counts.externalProviders, 'number');
+
+    if (providersBody.data.providers.length > 0) {
+      const firstProviderId = providersBody.data.providers[0].id;
+      const singleProviderRes = await fetch(`${baseUrl}/api/admin/providers/${firstProviderId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(singleProviderRes.status, 200);
+      const singleBody = await singleProviderRes.json();
+      assert.equal(singleBody.data.provider.id, firstProviderId);
+    }
+  });
 });
