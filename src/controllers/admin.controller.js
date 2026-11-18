@@ -46,6 +46,8 @@ class AdminController {
         studentProviderCount,
         externalProviderCount,
         pendingCount,
+        verifiedCount,
+        rejectedCount,
         suspendedCount,
       ] = await Promise.all([
         prisma.providerProfile.findMany({
@@ -80,6 +82,8 @@ class AdminController {
         prisma.providerProfile.count({ where: { providerType: 'STUDENT_PROVIDER' } }),
         prisma.providerProfile.count({ where: { providerType: 'EXTERNAL_PROVIDER' } }),
         prisma.providerProfile.count({ where: { verificationStatus: 'PENDING' } }),
+        prisma.providerProfile.count({ where: { verificationStatus: 'VERIFIED' } }),
+        prisma.providerProfile.count({ where: { verificationStatus: 'REJECTED' } }),
         prisma.providerProfile.count({
           where: { user: { is: { status: 'SUSPENDED' } } },
         }),
@@ -97,6 +101,8 @@ class AdminController {
           studentProviders: studentProviderCount,
           externalProviders: externalProviderCount,
           pending: pendingCount,
+          verified: verifiedCount,
+          rejected: rejectedCount,
           suspended: suspendedCount,
         },
         data: { providers },
@@ -155,9 +161,50 @@ class AdminController {
         });
       }
 
+      const profile = provider.user?.userProfile;
+      const duplicateConditions = [];
+      if (profile?.universityIdNumber) {
+        duplicateConditions.push({ universityIdNumber: profile.universityIdNumber });
+      }
+      if (profile?.nicNumber) {
+        duplicateConditions.push({ nicNumber: profile.nicNumber });
+      }
+
+      const [duplicateCount, activeReportCount] = await Promise.all([
+        duplicateConditions.length > 0
+          ? prisma.userProfile.count({
+              where: {
+                userId: { not: provider.userId },
+                OR: duplicateConditions,
+              },
+            })
+          : Promise.resolve(0),
+        prisma.report.count({
+          where: {
+            reportedUserId: provider.userId,
+            status: { not: 'DISMISSED' },
+          },
+        }),
+      ]);
+
+      const verificationChecks = {
+        noDuplicateAccount: duplicateCount === 0,
+        noViolations: activeReportCount === 0,
+        profileCompleted: Boolean(profile?.isCompleted),
+        hasVerificationDoc: Boolean(
+          provider.verificationDocUrl || profile?.privacySettings?.studentEvidenceUrl
+        ),
+        activeReportCount,
+      };
+
       return res.status(200).json({
         status: 'success',
-        data: { provider },
+        data: {
+          provider: {
+            ...provider,
+            verificationChecks,
+          },
+        },
       });
     } catch (error) {
       return res.status(500).json({
@@ -225,10 +272,10 @@ class AdminController {
         });
       }
 
-      if (!['VERIFIED', 'REJECTED'].includes(status)) {
+      if (!['VERIFIED', 'REJECTED', 'PENDING'].includes(status)) {
         return res.status(400).json({
           status: 'error',
-          message: 'Status must be either VERIFIED or REJECTED.',
+          message: 'Status must be VERIFIED, REJECTED, or PENDING.',
         });
       }
 
@@ -244,28 +291,68 @@ class AdminController {
       }
 
       const isVerified = status === 'VERIFIED';
+      const isRejected = status === 'REJECTED';
 
       const updated = await prisma.providerProfile.update({
         where: { id: providerId },
         data: {
           verificationStatus: status,
           verifiedAt: isVerified ? new Date() : null,
-          rejectionReason: !isVerified ? (rejectionReason || 'Verification document did not meet criteria.') : null,
+          rejectionReason: isVerified
+            ? null
+            : rejectionReason ||
+              (isRejected
+                ? 'Verification document did not meet criteria.'
+                : 'Additional verification details or documents requested by admin.'),
         },
         include: {
           user: {
             select: {
               id: true,
               email: true,
+              contactNumber: true,
+              status: true,
+              emailVerified: true,
+              createdAt: true,
               userProfile: true,
+            },
+          },
+          _count: {
+            select: {
+              marketplaceProducts: true,
+              rentalListings: true,
+              reviewsReceived: true,
             },
           },
         },
       });
 
+      // Notify provider asynchronously
+      const notifTitle = isVerified
+        ? 'Provider Account Verified'
+        : isRejected
+          ? 'Provider Verification Rejected'
+          : 'Additional Verification Info Requested';
+      const notifContent = isVerified
+        ? 'Congratulations! Your UniMart provider verification has been approved by an administrator.'
+        : updated.rejectionReason;
+
+      prisma.notification
+        .create({
+          data: {
+            recipientId: existingProvider.userId,
+            type: 'VERIFICATION_UPDATE',
+            title: notifTitle,
+            content: notifContent,
+            referenceType: 'PROVIDER_PROFILE',
+            referenceId: existingProvider.id,
+          },
+        })
+        .catch(() => {});
+
       return res.status(200).json({
         status: 'success',
-        message: `Provider has been successfully ${isVerified ? 'VERIFIED' : 'REJECTED'}.`,
+        message: `Provider verification status updated to ${status}.`,
         data: {
           provider: updated,
         },
