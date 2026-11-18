@@ -612,6 +612,8 @@ class AuthService {
         businessName ? `Business Name: ${businessName}` : null,
       ].filter(Boolean).join('\n');
 
+      const isAlreadyVerified = user.providerProfile?.verificationStatus === 'VERIFIED';
+
       await prisma.providerProfile.upsert({
         where: { userId },
         create: {
@@ -620,16 +622,17 @@ class AuthService {
           displayName: providerDisplayName || fullName || user.email.split('@')[0],
           description: combinedDescription || null,
           verificationDocUrl: docUrl,
-          verificationStatus: 'VERIFIED',
-          verifiedAt: new Date(),
+          verificationStatus: 'PENDING',
+          verifiedAt: null,
         },
         update: {
           providerType: targetProviderType,
           displayName: providerDisplayName || undefined,
           description: combinedDescription || undefined,
           verificationDocUrl: docUrl || undefined,
-          verificationStatus: 'VERIFIED',
-          verifiedAt: new Date(),
+          verificationStatus: isAlreadyVerified ? 'VERIFIED' : 'PENDING',
+          verifiedAt: isAlreadyVerified ? user.providerProfile.verifiedAt : null,
+          rejectionReason: isAlreadyVerified ? undefined : null,
         },
       });
     }
