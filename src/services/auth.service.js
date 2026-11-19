@@ -193,9 +193,8 @@ class AuthService {
     let createdUser;
 
     if (isProvider) {
-      const isStudent =
-        providerType === 'STUDENT_PROVIDER' ||
-        providerType === 'Student Provider';
+      const normalizedProvType = String(providerType || '').trim().toLowerCase();
+      const isStudent = normalizedProvType.includes('student');
 
       const actualProviderType = isStudent ? 'STUDENT_PROVIDER' : 'EXTERNAL_PROVIDER';
       const actualUserType = isStudent ? 'STUDENT' : 'EXTERNAL';
@@ -203,6 +202,14 @@ class AuthService {
       const displayName = isStudent
         ? (verificationData?.fullName || trimmedEmail.split('@')[0])
         : (verificationData?.businessName || verificationData?.fullName || trimmedEmail.split('@')[0]);
+
+      const studentPrivacySettings =
+        isStudent && (verificationData?.department || verificationData?.intakeBatch)
+          ? {
+              department: verificationData.department || null,
+              intakeBatch: verificationData.intakeBatch || null,
+            }
+          : undefined;
 
       createdUser = await prisma.user.create({
         data: {
@@ -217,12 +224,13 @@ class AuthService {
               fullName: verificationData?.fullName || displayName,
               contactNumber: isStudent ? trimmedContact : (verificationData?.businessContact || trimmedContact),
               userType: actualUserType,
-              university: verificationData?.university || null,
+              university: isStudent ? (verificationData?.university || null) : null,
               faculty: isStudent ? (verificationData?.faculty || null) : null,
-              universityEmail: isStudent ? (verificationData?.universityEmail || null) : null,
+              universityEmail: isStudent ? (verificationData?.universityEmail || trimmedEmail) : null,
               universityIdNumber: isStudent ? (verificationData?.studentId || null) : null,
               nicNumber: !isStudent ? (verificationData?.identificationNumber || null) : null,
               isCompleted: false,
+              privacySettings: studentPrivacySettings,
             },
           },
           providerProfile: {
@@ -241,6 +249,14 @@ class AuthService {
       });
     } else {
       // Regular User (Buyer & Renter)
+      const buyerPrivacySettings =
+        verificationData?.department || verificationData?.intakeBatch
+          ? {
+              department: verificationData.department || null,
+              intakeBatch: verificationData.intakeBatch || null,
+            }
+          : undefined;
+
       createdUser = await prisma.user.create({
         data: {
           email: trimmedEmail,
@@ -251,9 +267,15 @@ class AuthService {
           emailVerified: isEmailVerified,
           userProfile: {
             create: {
-              fullName: trimmedEmail.split('@')[0],
+              fullName: verificationData?.fullName || trimmedEmail.split('@')[0],
               contactNumber: trimmedContact,
+              userType: 'STUDENT',
+              university: verificationData?.university || null,
+              faculty: verificationData?.faculty || null,
+              universityEmail: verificationData?.universityEmail || trimmedEmail,
+              universityIdNumber: verificationData?.studentId || null,
               isCompleted: false,
+              privacySettings: buyerPrivacySettings,
             },
           },
         },
@@ -529,19 +551,25 @@ class AuthService {
       throw error;
     }
 
-    // Determine target roles and types
+    const normalizedProvType = String(providerType || '').trim().toLowerCase();
     const shouldBeProvider =
       Boolean(isProvider) ||
-      providerType === 'STUDENT_PROVIDER' ||
-      providerType === 'EXTERNAL_PROVIDER' ||
+      normalizedProvType.includes('student') ||
+      normalizedProvType.includes('external') ||
       user.role === 'PROVIDER' ||
       Boolean(user.providerProfile);
 
-    const isExternalType =
-      providerType === 'EXTERNAL_PROVIDER' ||
-      badgeType === 'EXTERNAL_PROVIDER' ||
-      user.providerProfile?.providerType === 'EXTERNAL_PROVIDER' ||
-      user.userProfile?.userType === 'EXTERNAL';
+    const isExplicitStudent =
+      normalizedProvType.includes('student') ||
+      badgeType === 'STUDENT_PROVIDER' ||
+      badgeType === 'STUDENT';
+
+    const isExternalType = isExplicitStudent
+      ? false
+      : normalizedProvType.includes('external') ||
+        badgeType === 'EXTERNAL_PROVIDER' ||
+        user.providerProfile?.providerType === 'EXTERNAL_PROVIDER' ||
+        user.userProfile?.userType === 'EXTERNAL';
 
     const targetUserType = isExternalType ? 'EXTERNAL' : 'STUDENT';
     const targetProviderType = isExternalType ? 'EXTERNAL_PROVIDER' : 'STUDENT_PROVIDER';
@@ -656,19 +684,14 @@ class AuthService {
         userWithoutPassword.userProfile?.privacySettings?.studentEvidenceUrl;
     }
 
-    // Send verification email confirmation the first time the profile is completed
-    if (!user.userProfile?.isCompleted) {
-      const accountLabel = shouldBeProvider
-        ? isExternalType
-          ? 'External Provider'
-          : 'Student Provider'
-        : 'Student Buyer';
-
+    // Send verification email immediately only for non-provider buyers.
+    // Providers receive the "Profile Verified" email after admin approval.
+    if (!user.userProfile?.isCompleted && !shouldBeProvider) {
       emailService
         .sendProfileCompletedEmail({
           to: refreshedUser.email,
           fullName: refreshedUser.userProfile?.fullName,
-          accountType: accountLabel,
+          accountType: 'Student Buyer',
         })
         .catch((err) => {
           console.warn('[EmailService] Profile completion email failed:', err.message);
