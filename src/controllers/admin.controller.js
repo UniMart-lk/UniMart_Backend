@@ -1,4 +1,5 @@
 import prisma from '../config/prisma.js';
+import emailService from '../services/email.service.js';
 
 class AdminController {
   /**
@@ -11,9 +12,23 @@ class AdminController {
       const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 10));
       const skip = (page - 1) * limit;
 
-      const { providerType, verificationStatus, accountStatus, search, sort } = req.query;
+      const {
+        providerType,
+        verificationStatus,
+        excludeVerificationStatus,
+        accountStatus,
+        search,
+        sort,
+      } = req.query;
 
-      const where = {};
+      const baseWhere = {};
+      if (excludeVerificationStatus) {
+        baseWhere.verificationStatus = { not: excludeVerificationStatus };
+      } else if (verificationStatus && verificationStatus === 'VERIFIED') {
+        baseWhere.verificationStatus = 'VERIFIED';
+      }
+
+      const where = { ...baseWhere };
       if (providerType) where.providerType = providerType;
       if (verificationStatus) where.verificationStatus = verificationStatus;
       if (accountStatus) {
@@ -78,14 +93,18 @@ class AdminController {
           orderBy,
         }),
         prisma.providerProfile.count({ where }),
-        prisma.providerProfile.count(),
-        prisma.providerProfile.count({ where: { providerType: 'STUDENT_PROVIDER' } }),
-        prisma.providerProfile.count({ where: { providerType: 'EXTERNAL_PROVIDER' } }),
+        prisma.providerProfile.count({ where: baseWhere }),
+        prisma.providerProfile.count({
+          where: { ...baseWhere, providerType: 'STUDENT_PROVIDER' },
+        }),
+        prisma.providerProfile.count({
+          where: { ...baseWhere, providerType: 'EXTERNAL_PROVIDER' },
+        }),
         prisma.providerProfile.count({ where: { verificationStatus: 'PENDING' } }),
         prisma.providerProfile.count({ where: { verificationStatus: 'VERIFIED' } }),
         prisma.providerProfile.count({ where: { verificationStatus: 'REJECTED' } }),
         prisma.providerProfile.count({
-          where: { user: { is: { status: 'SUSPENDED' } } },
+          where: { ...baseWhere, user: { is: { status: 'SUSPENDED' } } },
         }),
       ]);
 
@@ -350,6 +369,28 @@ class AdminController {
         })
         .catch(() => {});
 
+      // Send "Profile Verified" email once admin approves the provider
+      if (isVerified && existingProvider.verificationStatus !== 'VERIFIED') {
+        const accountLabel =
+          updated.providerType === 'EXTERNAL_PROVIDER'
+            ? 'External Provider'
+            : 'Student Provider';
+
+        emailService
+          .sendProfileCompletedEmail({
+            to: updated.user.email,
+            fullName:
+              updated.user.userProfile?.fullName || updated.displayName,
+            accountType: accountLabel,
+          })
+          .catch((err) => {
+            console.warn(
+              '[EmailService] Provider verification email failed:',
+              err.message
+            );
+          });
+      }
+
       return res.status(200).json({
         status: 'success',
         message: `Provider verification status updated to ${status}.`,
@@ -380,6 +421,9 @@ class AdminController {
       const baseWhere = {};
       if (role) {
         baseWhere.role = role;
+        if (role === 'USER') {
+          baseWhere.providerProfile = { is: null };
+        }
       } else if (excludeRole) {
         baseWhere.role = { not: excludeRole };
       }
