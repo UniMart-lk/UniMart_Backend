@@ -6,6 +6,7 @@ import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import app from '../src/app.js';
 import prisma from '../src/config/prisma.js';
+import emailService from '../src/services/email.service.js';
 
 let server;
 let baseUrl;
@@ -178,6 +179,64 @@ describe('Member 1: Provider Flow Tests', () => {
     providerToken = body.data.token;
   });
 
+  test('POST /api/auth/register saves STUDENT_PROVIDER academic details only for student providers and EXTERNAL_PROVIDER without academic details', async () => {
+    const studEmail = `22cse9${String(ts).slice(-3)}@ms.sab.ac.lk`;
+    const studRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: studEmail,
+        password: 'Password123!',
+        contactNumber: '+94771112222',
+        role: 'PROVIDER',
+        providerType: 'Student provider',
+        verificationData: {
+          fullName: '22CSE9001',
+          universityEmail: studEmail,
+          university: 'Sabaragamuwa University of Sri Lanka',
+          faculty: 'Faculty of Computing',
+          department: 'Software Engineering',
+          intakeBatch: '22/23',
+          studentId: '22CSE9001',
+        },
+      }),
+    });
+
+    assert.equal(studRes.status, 201);
+    const studBody = await studRes.json();
+    assert.equal(studBody.data.user.providerProfile.providerType, 'STUDENT_PROVIDER');
+    assert.equal(studBody.data.user.userProfile.userType, 'STUDENT');
+    assert.equal(studBody.data.user.userProfile.university, 'Sabaragamuwa University of Sri Lanka');
+    assert.equal(studBody.data.user.userProfile.faculty, 'Faculty of Computing');
+    assert.equal(studBody.data.user.userProfile.universityIdNumber, '22CSE9001');
+
+    const extEmail = `extprov_${ts}@gmail.com`;
+    const extRes = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: extEmail,
+        password: 'Password123!',
+        contactNumber: '+94773334444',
+        role: 'PROVIDER',
+        providerType: 'EXTERNAL_PROVIDER',
+        verificationData: {
+          fullName: 'extprov',
+          university: 'Should Not Store',
+          faculty: 'Should Not Store',
+        },
+      }),
+    });
+
+    assert.equal(extRes.status, 201);
+    const extBody = await extRes.json();
+    assert.equal(extBody.data.user.providerProfile.providerType, 'EXTERNAL_PROVIDER');
+    assert.equal(extBody.data.user.userProfile.userType, 'EXTERNAL');
+    assert.equal(extBody.data.user.userProfile.university, null);
+    assert.equal(extBody.data.user.userProfile.faculty, null);
+    assert.equal(extBody.data.user.userProfile.universityIdNumber, null);
+  });
+
   test('POST /api/providers/verify updates verification details', async () => {
     const res = await fetch(`${baseUrl}/api/providers/verify`, {
       method: 'POST',
@@ -201,63 +260,78 @@ describe('Member 1: Provider Flow Tests', () => {
   });
 
   test('PUT /api/auth/profile keeps provider PENDING until Admin approves via /api/admin/providers/:id/verify', async () => {
-    const profileRes = await fetch(`${baseUrl}/api/auth/profile`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${providerToken}`,
-      },
-      body: JSON.stringify({
-        fullName: 'Campus Tools Owner',
-        contactNumber: '+94779990000',
-        providerDisplayName: 'Campus Tools Hub',
-        isProvider: true,
-        providerType: 'STUDENT_PROVIDER',
-        studentEvidenceUrl: 'id_doc_sample.pdf',
-      }),
-    });
+    const sentVerifiedEmails = [];
+    const originalSendProfileVerified = emailService.sendProfileCompletedEmail.bind(emailService);
+    emailService.sendProfileCompletedEmail = async (payload) => {
+      sentVerifiedEmails.push(payload);
+      return originalSendProfileVerified(payload);
+    };
 
-    assert.equal(profileRes.status, 200);
-    const profileBody = await profileRes.json();
-    assert.equal(profileBody.data.user.userProfile.isCompleted, true);
-    assert.equal(profileBody.data.user.providerProfile.verificationStatus, 'PENDING');
-    const providerId = profileBody.data.user.providerProfile.id;
+    try {
+      const profileRes = await fetch(`${baseUrl}/api/auth/profile`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${providerToken}`,
+        },
+        body: JSON.stringify({
+          fullName: 'Campus Tools Owner',
+          contactNumber: '+94779990000',
+          providerDisplayName: 'Campus Tools Hub',
+          isProvider: true,
+          providerType: 'STUDENT_PROVIDER',
+          studentEvidenceUrl: 'id_doc_sample.pdf',
+        }),
+      });
 
-    // Login as admin and inspect verificationChecks + approve
-    const adminLoginRes = await fetch(`${baseUrl}/api/auth/admin/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'admin@unimart.lk', password: 'admin123' }),
-    });
-    assert.equal(adminLoginRes.status, 200);
-    const adminToken = (await adminLoginRes.json()).data.token;
+      assert.equal(profileRes.status, 200);
+      const profileBody = await profileRes.json();
+      assert.equal(profileBody.data.user.userProfile.isCompleted, true);
+      assert.equal(profileBody.data.user.providerProfile.verificationStatus, 'PENDING');
+      assert.equal(sentVerifiedEmails.length, 0);
+      const providerId = profileBody.data.user.providerProfile.id;
 
-    const detailRes = await fetch(`${baseUrl}/api/admin/providers/${providerId}`, {
-      headers: { Authorization: `Bearer ${adminToken}` },
-    });
-    assert.equal(detailRes.status, 200);
-    const detailBody = await detailRes.json();
-    assert.equal(detailBody.data.provider.verificationChecks.profileCompleted, true);
-    assert.equal(detailBody.data.provider.verificationChecks.noDuplicateAccount, true);
-    assert.equal(detailBody.data.provider.verificationChecks.noViolations, true);
+      // Login as admin and inspect verificationChecks + approve
+      const adminLoginRes = await fetch(`${baseUrl}/api/auth/admin/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'admin@unimart.lk', password: 'admin123' }),
+      });
+      assert.equal(adminLoginRes.status, 200);
+      const adminToken = (await adminLoginRes.json()).data.token;
 
-    const approveRes = await fetch(`${baseUrl}/api/admin/providers/${providerId}/verify`, {
-      method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${adminToken}`,
-      },
-      body: JSON.stringify({ status: 'VERIFIED' }),
-    });
-    assert.equal(approveRes.status, 200);
-    assert.equal((await approveRes.json()).data.provider.verificationStatus, 'VERIFIED');
+      const detailRes = await fetch(`${baseUrl}/api/admin/providers/${providerId}`, {
+        headers: { Authorization: `Bearer ${adminToken}` },
+      });
+      assert.equal(detailRes.status, 200);
+      const detailBody = await detailRes.json();
+      assert.equal(detailBody.data.provider.verificationChecks.profileCompleted, true);
+      assert.equal(detailBody.data.provider.verificationChecks.noDuplicateAccount, true);
+      assert.equal(detailBody.data.provider.verificationChecks.noViolations, true);
 
-    // Verify provider /auth/me now reflects VERIFIED
-    const meRes = await fetch(`${baseUrl}/api/auth/me`, {
-      headers: { Authorization: `Bearer ${providerToken}` },
-    });
-    assert.equal(meRes.status, 200);
-    assert.equal((await meRes.json()).data.user.providerProfile.verificationStatus, 'VERIFIED');
+      const approveRes = await fetch(`${baseUrl}/api/admin/providers/${providerId}/verify`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({ status: 'VERIFIED' }),
+      });
+      assert.equal(approveRes.status, 200);
+      assert.equal((await approveRes.json()).data.provider.verificationStatus, 'VERIFIED');
+      assert.equal(sentVerifiedEmails.length, 1);
+      assert.equal(sentVerifiedEmails[0].to, testProviderEmail);
+      assert.equal(sentVerifiedEmails[0].accountType, 'Student Provider');
+
+      // Verify provider /auth/me now reflects VERIFIED
+      const meRes = await fetch(`${baseUrl}/api/auth/me`, {
+        headers: { Authorization: `Bearer ${providerToken}` },
+      });
+      assert.equal(meRes.status, 200);
+      assert.equal((await meRes.json()).data.user.providerProfile.verificationStatus, 'VERIFIED');
+    } finally {
+      emailService.sendProfileCompletedEmail = originalSendProfileVerified;
+    }
   });
 });
 
@@ -375,15 +449,16 @@ describe('Member 1: Categories & Admin Tests', () => {
     assert.equal(regRes.status, 201);
     const tempUserId = (await regRes.json()).data.user.id;
 
-    // List users with excludeRole=ADMIN and search
+    // List buyer-only users (role=USER) and verify no providers or admins appear
     const listRes = await fetch(
-      `${baseUrl}/api/admin/users?excludeRole=ADMIN&search=${encodeURIComponent(tempEmail)}&limit=6&sort=recent`,
+      `${baseUrl}/api/admin/users?role=USER&search=${encodeURIComponent(tempEmail)}&limit=6&sort=recent`,
       { headers: { Authorization: `Bearer ${adminToken}` } }
     );
     assert.equal(listRes.status, 200);
     const listBody = await listRes.json();
     assert.equal(listBody.data.users.length, 1);
     assert.equal(listBody.data.users[0].id, tempUserId);
+    assert.ok(listBody.data.users.every((u) => u.role === 'USER' && !u.providerProfile));
     assert.equal(typeof listBody.counts.all, 'number');
     assert.equal(typeof listBody.counts.students, 'number');
     assert.equal(typeof listBody.counts.external, 'number');
@@ -431,19 +506,27 @@ describe('Member 1: Categories & Admin Tests', () => {
     assert.equal(deleteRes.status, 200);
     assert.equal((await deleteRes.json()).data.deletedCount, 1);
 
-    // List providers & fetch provider details
-    const providersRes = await fetch(`${baseUrl}/api/admin/providers?limit=6&sort=recent`, {
-      headers: { Authorization: `Bearer ${adminToken}` },
-    });
-    assert.equal(providersRes.status, 200);
-    const providersBody = await providersRes.json();
-    assert.ok(Array.isArray(providersBody.data.providers));
-    assert.equal(typeof providersBody.counts.all, 'number');
-    assert.equal(typeof providersBody.counts.studentProviders, 'number');
-    assert.equal(typeof providersBody.counts.externalProviders, 'number');
+    // List approved providers only (Providers page) and unapproved providers only (Verifications page)
+    const approvedRes = await fetch(
+      `${baseUrl}/api/admin/providers?verificationStatus=VERIFIED&limit=6&sort=recent`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    assert.equal(approvedRes.status, 200);
+    const approvedBody = await approvedRes.json();
+    assert.ok(Array.isArray(approvedBody.data.providers));
+    assert.ok(approvedBody.data.providers.every((p) => p.verificationStatus === 'VERIFIED'));
 
-    if (providersBody.data.providers.length > 0) {
-      const firstProviderId = providersBody.data.providers[0].id;
+    const queueRes = await fetch(
+      `${baseUrl}/api/admin/providers?excludeVerificationStatus=VERIFIED&limit=6&sort=recent`,
+      { headers: { Authorization: `Bearer ${adminToken}` } }
+    );
+    assert.equal(queueRes.status, 200);
+    const queueBody = await queueRes.json();
+    assert.ok(Array.isArray(queueBody.data.providers));
+    assert.ok(queueBody.data.providers.every((p) => p.verificationStatus !== 'VERIFIED'));
+
+    if (approvedBody.data.providers.length > 0) {
+      const firstProviderId = approvedBody.data.providers[0].id;
       const singleProviderRes = await fetch(`${baseUrl}/api/admin/providers/${firstProviderId}`, {
         headers: { Authorization: `Bearer ${adminToken}` },
       });
