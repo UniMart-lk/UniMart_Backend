@@ -158,7 +158,9 @@ function formatRentalListing(rental) {
 class HomeService {
   async getFeaturedMarketplace(limit = 10) {
     const products = await prisma.marketplaceProduct.findMany({
+      where: { status: 'AVAILABLE' },
       select: homeMarketplaceSelect,
+      orderBy: { createdAt: 'desc' },
       take: limit,
     });
     return products.map(formatMarketplaceProduct);
