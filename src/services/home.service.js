@@ -155,4 +155,12 @@ function formatRentalListing(rental) {
   };
 }
 
-class HomeService {}
+class HomeService {
+  async getFeaturedMarketplace(limit = 10) {
+    const products = await prisma.marketplaceProduct.findMany({
+      select: homeMarketplaceSelect,
+      take: limit,
+    });
+    return products.map(formatMarketplaceProduct);
+  }
+}
