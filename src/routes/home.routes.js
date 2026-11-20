@@ -1,6 +1,6 @@
 import express from 'express';
 import homeController from '../controllers/home.controller.js';
-import { optionalAuthenticate } from '../middlewares/auth.middleware.js';
+import { authenticate, optionalAuthenticate } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -15,3 +15,6 @@ router.get('/featured-rentals', homeController.getFeaturedRentals);
 
 // GET /api/home/categories - Active categories
 router.get('/categories', homeController.getCategories);
+
+// GET /api/home/notifications-count - Unread counts for authenticated user
+router.get('/notifications-count', authenticate, homeController.getNotificationCount);
