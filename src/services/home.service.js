@@ -116,4 +116,43 @@ function formatMarketplaceProduct(product) {
   };
 }
 
+function formatRentalListing(rental) {
+  const primaryImage = rental.images?.[0]?.imageUrl || null;
+  const numericPrice = Number(rental.rentalPrice);
+  const period = (rental.rentalPeriod || 'DAILY').toLowerCase();
+  const location =
+    rental.vehicleDetail?.pickupLocationName ||
+    rental.equipmentDetail?.pickupLocationName ||
+    'Main Library · Campus';
+
+  const totalAssets = rental.assets?.length || 0;
+  const availableAssets = rental.assets?.filter((a) => a.status === 'AVAILABLE').length || 0;
+  const availabilityText =
+    totalAssets > 0
+      ? availableAssets > 0
+        ? 'Available this week'
+        : 'Currently rented'
+      : 'Available this week';
+
+  return {
+    id: rental.id,
+    title: rental.title,
+    rentalPrice: numericPrice,
+    rentalPeriod: period,
+    priceFormatted: `Rs. ${numericPrice.toLocaleString()}/${period === 'daily' ? 'day' : period}`,
+    itemType: rental.itemType,
+    condition: rental.condition,
+    primaryImageUrl: primaryImage || 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?w=800&q=80',
+    location: location,
+    availability: availabilityText,
+    rating: Number(rental.provider?.overallRating || 4.8).toFixed(1),
+    reviewsCount: rental.provider?.totalReviews || 24,
+    providerType: rental.provider?.providerType === 'EXTERNAL_PROVIDER' ? 'external' : 'student',
+    providerName: rental.provider?.displayName || 'Campus Provider',
+    totalAssets,
+    availableAssets,
+    createdAt: rental.createdAt,
+  };
+}
+
 class HomeService {}
