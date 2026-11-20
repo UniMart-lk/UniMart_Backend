@@ -182,9 +182,21 @@ class HomeService {
         name: true,
         slug: true,
         type: true,
+        _count: {
+          select: {
+            marketplaceProducts: true,
+            rentalListings: true,
+          },
+        },
       },
       orderBy: { name: 'asc' },
     });
-    return categories;
+    return categories.map((cat) => ({
+      id: cat.id,
+      name: cat.name,
+      slug: cat.slug,
+      type: cat.type,
+      totalListings: (cat._count?.marketplaceProducts || 0) + (cat._count?.rentalListings || 0),
+    }));
   }
 }
