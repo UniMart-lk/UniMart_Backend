@@ -37,4 +37,22 @@ class HomeController {
       return res.status(500).json({ status: 'error', message: error.message });
     }
   }
+  async getNotificationCount(req, res) {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ status: 'error', message: 'Authentication required' });
+      }
+      const summary = await homeService.getUserSummary(userId);
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          unreadNotifications: summary?.unreadNotifications || 0,
+          unreadMessages: summary?.unreadMessages || 0,
+        },
+      });
+    } catch (error) {
+      return res.status(500).json({ status: 'error', message: error.message });
+    }
+  }
 }
