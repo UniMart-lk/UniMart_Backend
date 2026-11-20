@@ -12,3 +12,6 @@ router.get('/featured-products', homeController.getFeaturedProducts);
 
 // GET /api/home/featured-rentals - Featured rental listings
 router.get('/featured-rentals', homeController.getFeaturedRentals);
+
+// GET /api/home/categories - Active categories
+router.get('/categories', homeController.getCategories);
