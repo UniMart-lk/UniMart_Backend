@@ -236,7 +236,11 @@ class HomeService {
       userType: user.userProfile?.userType || 'STUDENT',
       avatarUrl: user.userProfile?.profilePictureUrl || null,
       isProvider: user.role === 'PROVIDER' || user.role === 'ADMIN' || !!user.providerProfile,
-      unreadNotifications,
+      const unreadMessages = await prisma.message.count({
+      where: { receiverId: userId, isRead: false },
+    });
+    unreadNotifications,
+      unreadMessages,
     };
   }
 }
