@@ -18,3 +18,5 @@ router.get('/categories', homeController.getCategories);
 
 // GET /api/home/notifications-count - Unread counts for authenticated user
 router.get('/notifications-count', authenticate, homeController.getNotificationCount);
+
+export default router;
