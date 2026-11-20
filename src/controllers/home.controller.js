@@ -20,4 +20,13 @@ class HomeController {
       return res.status(500).json({ status: 'error', message: error.message });
     }
   }
+  async getFeaturedRentals(req, res) {
+    try {
+      const limit = req.query.limit ? Math.min(Math.max(Number(req.query.limit) || 10, 1), 50) : 10;
+      const rentals = await homeService.getFeaturedRentals(limit);
+      return res.status(200).json({ status: 'success', data: { rentals } });
+    } catch (error) {
+      return res.status(500).json({ status: 'error', message: error.message });
+    }
+  }
 }
