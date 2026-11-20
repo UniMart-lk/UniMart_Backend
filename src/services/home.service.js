@@ -167,7 +167,9 @@ class HomeService {
   }
   async getFeaturedRentals(limit = 10) {
     const rentals = await prisma.rentalListing.findMany({
+      where: { status: 'ACTIVE' },
       select: homeRentalSelect,
+      orderBy: { createdAt: 'desc' },
       take: limit,
     });
     return rentals.map(formatRentalListing);
