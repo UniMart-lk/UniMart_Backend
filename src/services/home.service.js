@@ -243,4 +243,11 @@ class HomeService {
       unreadMessages,
     };
   }
+  async getPlatformStats() {
+    const [totalProducts, totalRentals] = await Promise.all([
+      prisma.marketplaceProduct.count({ where: { status: 'AVAILABLE' } }),
+      prisma.rentalListing.count({ where: { status: 'ACTIVE' } }),
+    ]);
+    return { totalProducts, totalRentals };
+  }
 }
