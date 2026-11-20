@@ -8,7 +8,8 @@ class HomeController {
       const feed = await homeService.getHomeFeed(userId, { limit });
       return res.status(200).json({ status: 'success', data: feed });
     } catch (error) {
-      return res.status(500).json({ status: 'error', message: error.message });
+      console.error('Failed to load home feed:', error);
+      return res.status(500).json({ status: 'error', message: 'Internal server error while loading home feed' });
     }
   }
   async getFeaturedProducts(req, res) {
