@@ -225,6 +225,9 @@ class HomeService {
       },
     });
     if (!user) return null;
+    const unreadNotifications = await prisma.notification.count({
+      where: { recipientId: userId, isRead: false },
+    });
     return {
       id: user.id,
       email: user.email,
@@ -233,6 +236,7 @@ class HomeService {
       userType: user.userProfile?.userType || 'STUDENT',
       avatarUrl: user.userProfile?.profilePictureUrl || null,
       isProvider: user.role === 'PROVIDER' || user.role === 'ADMIN' || !!user.providerProfile,
+      unreadNotifications,
     };
   }
 }
