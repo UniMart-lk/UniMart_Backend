@@ -9,3 +9,6 @@ router.get('/', optionalAuthenticate, homeController.getHomeFeed);
 
 // GET /api/home/featured-products - Featured marketplace products
 router.get('/featured-products', homeController.getFeaturedProducts);
+
+// GET /api/home/featured-rentals - Featured rental listings
+router.get('/featured-rentals', homeController.getFeaturedRentals);
