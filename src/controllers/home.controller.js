@@ -29,4 +29,12 @@ class HomeController {
       return res.status(500).json({ status: 'error', message: error.message });
     }
   }
+  async getCategories(req, res) {
+    try {
+      const categories = await homeService.getCategories();
+      return res.status(200).json({ status: 'success', data: { categories } });
+    } catch (error) {
+      return res.status(500).json({ status: 'error', message: error.message });
+    }
+  }
 }
