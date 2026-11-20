@@ -199,4 +199,40 @@ class HomeService {
       totalListings: (cat._count?.marketplaceProducts || 0) + (cat._count?.rentalListings || 0),
     }));
   }
+  async getUserSummary(userId) {
+    if (!userId) return null;
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        userProfile: {
+          select: {
+            fullName: true,
+            userType: true,
+            profilePictureUrl: true,
+          },
+        },
+        providerProfile: {
+          select: {
+            id: true,
+            displayName: true,
+            providerType: true,
+            overallRating: true,
+          },
+        },
+      },
+    });
+    if (!user) return null;
+    return {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      fullName: user.userProfile?.fullName || user.providerProfile?.displayName || 'Kasun',
+      userType: user.userProfile?.userType || 'STUDENT',
+      avatarUrl: user.userProfile?.profilePictureUrl || null,
+      isProvider: user.role === 'PROVIDER' || user.role === 'ADMIN' || !!user.providerProfile,
+    };
+  }
 }
