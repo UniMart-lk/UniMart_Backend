@@ -60,6 +60,21 @@ const homeRentalSelect = {
     },
     orderBy: [{ isPrimary: 'desc' }, { id: 'asc' }],
   },
+  vehicleDetail: {
+    select: {
+      vehicleType: true,
+      makeModel: true,
+      pickupLocationName: true,
+      latitude: true,
+      longitude: true,
+    },
+  },
+  equipmentDetail: {
+    select: {
+      equipmentType: true,
+      pickupLocationName: true,
+    },
+  },
 };
 
 class HomeService {}
