@@ -174,4 +174,17 @@ class HomeService {
     });
     return rentals.map(formatRentalListing);
   }
+  async getCategories() {
+    const categories = await prisma.category.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        type: true,
+      },
+      orderBy: { name: 'asc' },
+    });
+    return categories;
+  }
 }
