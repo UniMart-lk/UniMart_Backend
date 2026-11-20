@@ -24,6 +24,16 @@ const homeMarketplaceSelect = {
     },
     orderBy: [{ isPrimary: 'desc' }, { id: 'asc' }],
   },
+  provider: {
+    select: {
+      id: true,
+      displayName: true,
+      providerType: true,
+      verificationStatus: true,
+      overallRating: true,
+      totalReviews: true,
+    },
+  },
 };
 
 class HomeService {}
