@@ -228,6 +228,9 @@ class HomeService {
     const unreadNotifications = await prisma.notification.count({
       where: { recipientId: userId, isRead: false },
     });
+    const unreadMessages = await prisma.message.count({
+      where: { receiverId: userId, isRead: false },
+    });
     return {
       id: user.id,
       email: user.email,
@@ -236,10 +239,7 @@ class HomeService {
       userType: user.userProfile?.userType || 'STUDENT',
       avatarUrl: user.userProfile?.profilePictureUrl || null,
       isProvider: user.role === 'PROVIDER' || user.role === 'ADMIN' || !!user.providerProfile,
-      const unreadMessages = await prisma.message.count({
-      where: { receiverId: userId, isRead: false },
-    });
-    unreadNotifications,
+      unreadNotifications,
       unreadMessages,
     };
   }
