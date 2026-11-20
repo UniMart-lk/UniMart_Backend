@@ -75,6 +75,21 @@ const homeRentalSelect = {
       pickupLocationName: true,
     },
   },
+  assets: {
+    select: {
+      id: true,
+      status: true,
+    },
+  },
+  provider: {
+    select: {
+      id: true,
+      displayName: true,
+      providerType: true,
+      overallRating: true,
+      totalReviews: true,
+    },
+  },
 };
 
 class HomeService {}
