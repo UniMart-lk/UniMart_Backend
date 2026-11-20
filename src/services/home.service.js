@@ -165,4 +165,11 @@ class HomeService {
     });
     return products.map(formatMarketplaceProduct);
   }
+  async getFeaturedRentals(limit = 10) {
+    const rentals = await prisma.rentalListing.findMany({
+      select: homeRentalSelect,
+      take: limit,
+    });
+    return rentals.map(formatRentalListing);
+  }
 }
