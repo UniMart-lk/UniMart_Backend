@@ -26,6 +26,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/rentals', rentalRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
+app.use('/api/home', homeRoutes);
 
 // Healthcheck route
 app.get('/api/health', (req, res) => {
