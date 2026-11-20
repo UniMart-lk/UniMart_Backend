@@ -250,4 +250,23 @@ class HomeService {
     ]);
     return { totalProducts, totalRentals };
   }
+  async getHomeFeed(userId, options = {}) {
+    const limit = options.limit || 10;
+    const [featuredMarketplace, featuredRentals, categories, userSummary, stats] =
+      await Promise.all([
+        this.getFeaturedMarketplace(limit),
+        this.getFeaturedRentals(limit),
+        this.getCategories(),
+        this.getUserSummary(userId),
+        this.getPlatformStats(),
+      ]);
+
+    return {
+      userSummary,
+      featuredMarketplace,
+      featuredRentals,
+      categories,
+      stats,
+    };
+  }
 }
