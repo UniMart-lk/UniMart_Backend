@@ -9,6 +9,7 @@ import userRoutes from './routes/user.routes.js';
 import providerRoutes from './routes/provider.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import categoryRoutes from './routes/category.routes.js';
+import homeRoutes from './routes/home.routes.js';
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/rentals', rentalRoutes);
 app.use('/api/marketplace', marketplaceRoutes);
+app.use('/api/home', homeRoutes);
 
 // Healthcheck route
 app.get('/api/health', (req, res) => {

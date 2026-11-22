@@ -33,6 +33,41 @@ class AuthController {
   }
 
   /**
+   * Handle admin-only login request for the UniMart Admin Panel
+   * POST /api/auth/admin/login
+   */
+  async adminLogin(req, res) {
+    try {
+      const { email, password } = req.body || {};
+
+      if (!email || !password) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Please provide both email and password.',
+        });
+      }
+
+      const result = await authService.login({
+        email,
+        password,
+        requiredRole: 'ADMIN',
+      });
+
+      return res.status(200).json({
+        status: 'success',
+        message: 'Admin login successful',
+        data: result,
+      });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      return res.status(statusCode).json({
+        status: 'error',
+        message: error.message || 'Internal server error during admin login',
+      });
+    }
+  }
+
+  /**
    * Send a 6-digit email verification OTP before registration
    * POST /api/auth/send-verification-otp
    */

@@ -86,3 +86,36 @@ export const authorize = (...roles) => {
 // Aliases matching Member 1 specification and handshakes
 export const authenticateJWT = authenticate;
 export const requireRole = authorize;
+
+/**
+ * Middleware to optionally authenticate user if token is provided.
+ * If no token or invalid token, continues gracefully as guest.
+ */
+export const optionalAuthenticate = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return next();
+    }
+
+    const token = authHeader.split(' ')[1];
+    const jwtSecret = process.env.JWT_SECRET || 'unimart_default_jwt_secret';
+    const decoded = jwt.verify(token, jwtSecret);
+
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      include: {
+        userProfile: true,
+        providerProfile: true,
+      },
+    });
+
+    if (user && user.status === 'ACTIVE') {
+      const { passwordHash, ...userWithoutPassword } = user;
+      req.user = userWithoutPassword;
+    }
+    return next();
+  } catch {
+    return next();
+  }
+};
